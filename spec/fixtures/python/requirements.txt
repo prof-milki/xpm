@@ -1,2 +1,0 @@
-rtxt-dep1 > 0.1
-rtxt-dep2 == 0.1
