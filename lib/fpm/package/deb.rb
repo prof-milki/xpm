@@ -49,6 +49,9 @@ class FPM::Package::Deb < FPM::Package
     value
   end
 
+  option "--sign", "KEY", 
+    "Sign the resulting package with named GPG key."
+
   # Take care about the case when we want custom control file but still use fpm ...
   option "--custom-control", "FILEPATH",
     "Custom version of the Debian control file." do |control|
@@ -440,6 +443,9 @@ class FPM::Package::Deb < FPM::Package
     with(File.expand_path(output_path)) do |output_path|
       ::Dir.chdir(build_path) do
         safesystem("ar", "-qc", output_path, "debian-binary", "control.tar.gz", datatar)
+        if @attributes[:deb_sign]
+          safesystem("dpkg-sig", "-s", "builder", "-k", @attributes[:deb_sign], output_path)
+        end
       end
     end
   end # def output
