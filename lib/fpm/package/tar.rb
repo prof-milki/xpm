@@ -48,27 +48,38 @@ class FPM::Package::Tar < FPM::Package
   # the compression type.
   def output(output_path)
     output_check(output_path)
-    # Unpack the tarball to the staging path
-    args = ["-cf", output_path, "-C", staging_path]
-    with(tar_compression_flag(output_path)) do |flag|
-      args << flag unless flag.nil?
-    end
-    args << "."
+    # Pack tarball in the staging path
+    args = tar_compression_flag(output_path).compact \
+         + [File.absolute_path(output_path), "."]
 
-    safesystem("tar", *args)
+    ::Dir::chdir(staging_path) do
+      safesystem(*args)
+    end
   end # def output
 
   # Generate the proper tar flags based on the path name.
   def tar_compression_flag(path)
     case path
-      when /\.tar\.bz2$/
-        return "-j"
+      when /\.tar\.bz2$|\.tbz2$/
+        return ["tar", "-cjf"]
       when /\.tar\.gz$|\.tgz$/
-        return "-z"
-      when /\.tar\.xz$/
-        return "-J"
+        return ["tar", "-czf"]
+      when /\.tar\.xz$|\.txz$/
+        return ["tar", "-cJf"]
+      when /\.pax$/
+        return ["pax", "-wf"]
+      when /\.pax\.gz$/
+        return ["pax", "-wzf"]
+      when /\.pax\.xz$/
+        return ["pax", "-wJf"]
+      when /\.pax\.bz2$/
+        return ["pax", "-wJf"]
+      when /\.cpio$/
+        return ["pax", "-x" "cpio", "-wf"]
+      when /\.cpio.gz$/
+        return ["pax", "-x" "cpio", "-wzf"]
       else
-        return nil
+        return ["tar", "-cf"]
     end
   end # def tar_compression_flag
 end # class FPM::Package::Tar
