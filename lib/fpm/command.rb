@@ -248,6 +248,7 @@ class FPM::Command < Clamp::Command
 
   # Execute this command. See Clamp::Command#execute and Clamp's documentation
   def execute
+
     # Short-circuit if someone simply runs `fpm --version`
     if ARGV == [ "--version" ]
       puts FPM::VERSION
@@ -289,7 +290,6 @@ class FPM::Command < Clamp::Command
       return 1
     end
     input_class = FPM::Package.types[input_type]
-    output_class = FPM::Package.types[output_type]
 
     input = input_class.new
 
@@ -425,39 +425,47 @@ class FPM::Command < Clamp::Command
       return 1
     end
 
-    # Convert to the output type
-    output = input.convert(output_class)
 
-    # Provide any template values as methods on the package.
-    if template_scripts?
-      template_value_list.each do |key, value|
-        (class << output; self; end).send(:define_method, key) { value }
+    # Traverse output types (-t deb,rpm,pkg,exe).
+    # Scope retval and output here, so they're available for ensure block.
+    output = nil 
+    retval = 0
+    output_type.split(/[\s,;+]+/).uniq.each do |output_type|
+      
+      # Convert to the output type
+      output_class = FPM::Package.types[output_type]
+      output = input.convert(output_class)
+
+      # Provide any template values as methods on the package.
+      if template_scripts?
+        template_value_list.each do |key, value|
+          (class << output; self; end).send(:define_method, key) { value }
+        end
       end
-    end
 
-    # Write the output somewhere, package can be nil if no --package is specified, 
-    # and that's OK.
-    
-    # If the package output (-p flag) is a directory, write to the default file name
-    # but inside that directory.
-    if ! package.nil? && File.directory?(package)
-      package_file = File.join(package, output.to_s)
-    else
-      package_file = output.to_s(package)
-    end
+      # Write the output somewhere, package can be nil if no --package is specified, 
+      # and that's OK.
+      
+      # If the package output (-p flag) is a directory, write to the default file name
+      # but inside that directory.
+      if ! package.nil? && File.directory?(package)
+        package_file = File.join(package, output.to_s)
+      else
+        package_file = output.to_s(package)
+      end
 
-    begin
-      output.output(package_file)
-    rescue FPM::Package::FileAlreadyExists => e
-      logger.fatal(e.message)
-      return 1
-    rescue FPM::Package::ParentDirectoryMissing => e
-      logger.fatal(e.message)
-      return 1
-    end
+      begin
+        output.output(package_file)
+      rescue FPM::Package::FileAlreadyExists => e
+        logger.fatal(e.message)
+        return 1
+      rescue FPM::Package::ParentDirectoryMissing => e
+        logger.fatal(e.message)
+        return 1
+      end
 
-    logger.log("Created package", :path => package_file)
-    return 0
+      logger.log("Created package", :path => package_file)
+    end # each output_type
   rescue FPM::Util::ExecutableNotFound => e
     logger.error("Need executable '#{e}' to convert #{input_type} to #{output_type}")
     return 1
@@ -482,6 +490,7 @@ class FPM::Command < Clamp::Command
       input.cleanup unless input.nil?
       output.cleanup unless output.nil?
     end
+    return retval
   end # def execute
 
   def run(*args)
@@ -551,9 +560,11 @@ class FPM::Command < Clamp::Command
 
       with(@command.output_type) do |val|
         next if val.nil?
-        mandatory(FPM::Package.types.include?(val),
+        val.split(/[\s,;+]+/).each do |val|
+          mandatory(FPM::Package.types.include?(val),
                   "Invalid output package (-t flag) type #{val.inspect}. " \
                   "Expected one of: #{types.join(", ")}")
+        end
       end
 
       with (@command.dependencies) do |dependencies|
