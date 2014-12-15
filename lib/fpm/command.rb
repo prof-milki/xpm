@@ -47,6 +47,9 @@ class FPM::Command < Clamp::Command
   option "-s", "INPUT_TYPE",
     "the package type to use as input (gem, rpm, python, etc)",
     :attribute_name => :input_type
+  option "-u", "UPDATE_FILTER",
+    "Apply post-processing filters (man, appdata, etc, etc.)",
+    :attribute_name => :update_filter
   option "-C", "CHDIR",
     "Change directory to here before searching for files",
     :attribute_name => :chdir
@@ -423,6 +426,15 @@ class FPM::Command < Clamp::Command
       logger.fatal("No name given for this package (set name with '-n', " \
                     "for example, '-n packagename')")
       return 1
+    end
+
+
+    # Apply update filters on staging dir, prior to packaging
+    unless update_filter.nil?
+      update_filter.split(/[\s,;+]+/).each do |filter_type|
+        filter = input.convert(FPM::Package.types[filter_type])
+        filter.update()
+      end
     end
 
 
