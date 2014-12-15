@@ -6,7 +6,7 @@
 # depends: erb
 # category: meta
 # doc: http://en.wikipedia.org/wiki/AppStream, http://people.freedesktop.org/~hughsient/appdata/
-# version: 0.1
+# version: 0.2
 #
 # Creates a /usr/share/appdata/PKGNAME.appdata.xml file for consumption by
 # distribution package managers.
@@ -30,16 +30,19 @@
 require "fpm/package"
 require "fpm/util"
 require "fileutils"
+require "erb"
 
 # create appdata.xml file
 class FPM::Package::Appdata < FPM::Package
+
+  include ERB::Util
+
   def update
     dest = "#{staging_path}/usr/share/appdata/#{name}.appdata.xml"
-    puts dest
     FileUtils.mkdir_p(File.dirname(dest))
     File.open(dest, "w") do |xml|
       xml.write template("appstream.erb").result(binding)
     end
-    #safesystem("ls", "-l", dest)
   end
+
 end
