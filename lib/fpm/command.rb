@@ -428,15 +428,17 @@ class FPM::Command < Clamp::Command
       return 1
     end
 
-
     # Apply update filters on staging dir, prior to packaging
     unless update_filter.nil?
       update_filter.split(/[\s,;+]+/).each do |filter_type|
-        filter = input.convert(FPM::Package.types[filter_type])
+        if not FPM::Package.types.include?("filter_#{filter_type}")
+          logger.warn("Unknown -u update filter '#{filter_type}'")
+          next
+        end
+        filter = input.convert(FPM::Package.types["filter_#{filter_type}"])
         filter.update()
       end
     end
-
 
     # Traverse output types (-t deb,rpm,pkg,exe).
     # Scope retval and output here, so they're available for ensure block.

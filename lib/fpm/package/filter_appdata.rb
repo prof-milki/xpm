@@ -33,7 +33,7 @@ require "fileutils"
 require "erb"
 
 # create appdata.xml file
-class FPM::Package::Appdata < FPM::Package
+class FPM::Package::Filter_appdata < FPM::Package
 
   include ERB::Util
 
