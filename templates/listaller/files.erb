@@ -1,0 +1,19 @@
+# IPK file list for <%= name %>
+# very crude, does not separate data files yet
+
+:: %APP%
+<%= files.grep(/\.desktop$/).join("\n") %>
+
+:: %INST%
+<% files.each do |fn| %><%= fn %>
+<% end %>
+
+:: %ICON-16%
+# none
+:: %ICON-32%
+# none
+:: %ICON-64%
+# none
+:: %ICON-128%
+# none
+# could probably just .grep() for icons here too..?

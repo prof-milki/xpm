@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:foaf="http://xmlns.com/foaf/0.1/" xmlns="http://usefulinc.com/ns/doap#">
+  <name><%=h @name %></name>
+  <homepage rdf:resource="<%=h @url %>" />
+  <created><%= Time.now.strftime("%Y-%m-%d") %></created>
+  <shortdesc xml:lang="en">
+    <%=h (description.split("\n") or ["no description"]).first %>
+  </shortdesc>
+  <description xml:lang="en">
+    <%=h (description.split("\n") or ["", "no details available"])[1,50].join("\n    ") %>
+  </description>
+  <maintainer>
+          <foaf:Person>
+                  <foaf:name><%=h @maintainer %></foaf:name>
+          </foaf:Person>
+  </maintainer>
+  <release>
+          <Version>
+                  <name>stable</name>
+                  <created><%=h Time.now.strftime("%Y-%m-%d") %></created>
+                  <revision><%=h @version %></revision>
+          </Version>
+  </release>
+  <license rdf:resource="data:,<%=h @license %>" />
+</Project>
