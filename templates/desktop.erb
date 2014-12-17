@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=<%= @name %>
+;GenericName=<%= @name %>
+Comment=<%= @description.split("\n").first or "" %>
+Categories=<%= @category %>
+Exec=<%= @name %>
+Icon=<%= @name %>
+Terminal=false
+Type=Application
+MimeType=x-scheme-handler/<%= @name %>;
