@@ -4,7 +4,7 @@
 # description: generates Listaller packages using lipkgen
 # type: package
 # category: target
-# version: 0.0
+# version: 0.1
 # doc: http://listaller.tenstral.net/docs/chap-Listaller-Packaging.html
 # depends: bin:lipkgen, erb
 #
@@ -41,38 +41,33 @@ class FPM::Package::IPK < FPM::Package
     
     # set up build path
     ipk = "#{staging_path}/ipkinstall"
-    p ipk
     ::Dir.mkdir(ipk)
-    # options file
     File.open("#{ipk}/pkoptions", "w") do |f|
       f.write template("listaller/pkoptions.erb").result(binding)
     end
-    # write DOAP
     File.open("#{ipk}/#{name}.doap", "w") do |f|
       f.write template("listaller/doap.erb").result(binding)
     end
-    # file list
     File.open("#{ipk}/files-all.list", "w") do |f|
       f.write template("listaller/files.erb").result(binding)
     end
-    # stubs
     File.open("#{ipk}/build.rules", "w") do |f|
     end
     File.open("#{ipk}/dependencies.list", "w") do |f|
     end
     
     # let the packaging be done
-    sign = attributes[:deb_sign] ? ["--sign"] : []
-    ::Dir.chdir(staging_path) do
-      system(
-        "lipkgen",
-        "-b",
-        *sign,
-        "--verbose",
-        "--sourcedir=.",
-        "--outdir=#{build_path}"
-      )
+    opts = ["-b", "--sourcedir=.", "--outdir=#{build_path}"]
+    if attributes[:deb_sign] || attributes[:rpm_sign]
+      opts << "--sign"
     end
+    if @verbose || @debug
+      opts << "--verbose"
+    end
+    ::Dir.chdir(staging_path) do
+      safesystem("lipkgen", *opts);
+    end
+    FileUtils.rm_rf(ipk) unless debug?
     
     # move file
     File.rename(::Dir["#{build_path}/*.ipk"].first, output_path)
