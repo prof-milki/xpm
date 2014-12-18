@@ -27,7 +27,6 @@ class FPM::Package::Filter_Composer < FPM::Package
     dest = "#{staging_path}/#{@prefix}/composer.json"
     if File.exist?(dest)
       json = JSON.parse(File.read(dest))
-      p json
       # technically it could also become an input filter now,
       # injecting known values for absent fpm attributes here
       # (only had to be transferred back to @input in command.rb then..)
