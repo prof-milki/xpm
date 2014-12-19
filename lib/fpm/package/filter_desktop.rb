@@ -23,9 +23,8 @@ class FPM::Package::Filter_desktop < FPM::Package
   def update
     dest = "#{staging_path}/usr/share/applications/fpm:#{name}.desktop"
     FileUtils.mkdir_p(File.dirname(dest))
-p dest
     File.open(dest, "w") do |ini|
-p      ini.write template("desktop.erb").result(binding)
+      ini.write template("desktop.erb").result(binding)
     end
   end
 
