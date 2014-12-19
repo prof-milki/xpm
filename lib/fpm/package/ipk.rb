@@ -48,7 +48,7 @@ class FPM::Package::IPK < FPM::Package
     File.open("#{ipk}/#{name}.doap", "w") do |f|
       f.write template("listaller/doap.erb").result(binding)
     end
-    File.open("#{ipk}/files-all.list", "w") do |f|
+    File.open("#{ipk}/files-#{architecture}.list", "w") do |f|
       f.write template("listaller/files.erb").result(binding)
     end
     File.open("#{ipk}/build.rules", "w") do |f|
