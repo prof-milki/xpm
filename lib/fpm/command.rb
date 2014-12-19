@@ -42,14 +42,17 @@ class FPM::Command < Clamp::Command
   end # def help
 
   option "-t", "OUTPUT_TYPE",
-    "the type of package you want to create (deb, rpm, solaris, etc)",
+    "Package types you want to create (deb, rpm, solaris, etc)",
     :attribute_name => :output_type
   option "-s", "INPUT_TYPE",
-    "the package type to use as input (gem, rpm, python, etc)",
+    "Input source or format (dir, gem, rpm, deb, python, etc)",
     :attribute_name => :input_type
-  option "-u", "UPDATE_FILTER",
-    "Apply post-processing filters (man, appdata, etc, etc.)",
+  option ["-u", "--update"], "FILTER,LIST",
+    "Apply post-processing filters (man, appdata, desktop, etc.)",
     :attribute_name => :update_filter
+#  option "--sign", "KEY",
+#    "Sign package (needs a keyname for Debian packages)",
+#    :attribute_name => :sign
   option "-C", "CHDIR",
     "Change directory to here before searching for files",
     :attribute_name => :chdir
@@ -431,12 +434,17 @@ class FPM::Command < Clamp::Command
     # Apply update filters on staging dir, prior to packaging
     unless update_filter.nil?
       update_filter.split(/[\s,;+]+/).each do |filter_type|
+        opts = []
+        if filter_type =~ /(\w+)[=:]+(.+)/
+          filter_type, opts = [$1, $2.split(/\W+/)]
+          p opts
+        end
         if not FPM::Package.types.include?("filter_#{filter_type}")
           logger.warn("Unknown -u update filter '#{filter_type}'")
           next
         end
         filter = input.convert(FPM::Package.types["filter_#{filter_type}"])
-        filter.update()
+        filter.update(opts)
       end
     end
 
