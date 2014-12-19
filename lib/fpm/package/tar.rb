@@ -73,7 +73,7 @@ class FPM::Package::Tar < FPM::Package
       when /\.pax\.xz$/
         return ["pax", "-wJf"]
       when /\.pax\.bz2$/
-        return ["pax", "-wJf"]
+        return ["pax", "-wjf"]
       when /\.cpio$/
         return ["pax", "-x" "cpio", "-wf"]
       when /\.cpio.gz$/
