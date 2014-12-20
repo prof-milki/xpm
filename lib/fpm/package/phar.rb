@@ -122,8 +122,11 @@ class FPM::Package::Phar < FPM::Package
        if (strlen('#{o_stub}') && file_exists('#{staging_path}/#{o_stub}')) {
           $p->setStub(file_get_contents('#{staging_path}/#{o_stub}'));
        }
-       else {
+       elseif (#{o_format} == Phar::PHAR) {
           $p->setDefaultStub("__init__.php", "index.php");
+       }
+       else {
+          $p->setDefaultStub();
        }
 
        #-- Carry packaging info over as meta data (in particular for `fpm -s src` module)
