@@ -38,8 +38,6 @@ require "fpm/util"
 # Resolve package names cross-distro for dependency, suggest, conflicts, .. lists
 class FPM::Package::Filter_Deps < FPM::Package
 
-  option "--map", "FROM..TO", "Translate dependencies between distributions."
-
   def initialize()
     @dm = `which distromatch`
     @wh = `which whohas`
