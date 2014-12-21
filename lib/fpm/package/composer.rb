@@ -1,8 +1,10 @@
+#
 # encoding: utf-8
 # api: fpm
 # title: Composer source
 # description: Downloads composer bundles into system or phar packages
 # type: package
+# depends: bin:composer
 # category: source
 # version: 0.2
 # state: beta
@@ -11,21 +13,21 @@
 # 
 # Creates system packages for composer/packagist bundles.
 #
-#  → Either works on individual vendor/*/*/ dirs as input-
+#  → Either works on individual vendor/*/*/ paths as input.
 #
-#  → Or downloads and extrudes a single vnd/pkgname bundle.
+#  → Or downloads a single vnd/pkgname bundle.
 #
-# And supports different target variations:
+# Also supports different target variations:
 #
-#  → Syspackage bundles end up in /usr/share/php/vendor/vnd/pkg/.
+#  → Syspackages (deb/rpm) end up in /usr/share/php/vendor/vnd/pkg/.
 #    The composer.json is augmented with lock[] data to permit
 #    rebuilding composer.lock and file-autoloading.
 #
-#  → Whereas --composer-phar creates Phars matroska`d into system
-#    packages, that go into /usr/share/php/vnd-pkg.phar.
+#  → Whereas --composer-phar creates Phars matroskaed into system
+#    packages, with target names of /usr/share/php/vnd-pkg.phar.
 #
-#  → With a standard `-t phar` it'll just compact individual
-#    components into local-path phars.
+#  → With a standard `-t phar` target it'll just compact individual
+#    components into localized phars.
 #
 # NOTES
 #
@@ -48,8 +50,8 @@ require "json"
 # Composer reading (source only)
 class FPM::Package::Composer < FPM::Package
 
-  option "--ver", "\@trunk", "Which version to checkout", :default=>nil
-  option "--phar", :flag, "Convert bundle into local .phar plugin package", :default=>false
+  option "--ver", "1.0\@dev", "Which version to checkout", :default=>nil
+  option "--phar", :flag, "Convert bundle into .phar plugin package", :default=>false
 
   def initialize
     super
@@ -66,6 +68,10 @@ class FPM::Package::Composer < FPM::Package
     @name = in_bundle.gsub(/[\W]+/, "-")
     lock = {}
     target_dir = ""
+    if in_bundle =~ /^composer\/\w+\.\w+/
+      logger.warn("composer/*.* files specified as input")
+      return
+    end
 
     # operation mode
     if File.exist?("vendor/" + in_bundle)
@@ -91,6 +97,7 @@ class FPM::Package::Composer < FPM::Package
     end
 
     #-- staging
+    # eventually move this to convert() or converted_from()..
     
     # system package (deb/rpm) with raw files under /usr/share/php/vendor/
     if !as_phar
@@ -105,7 +112,7 @@ class FPM::Package::Composer < FPM::Package
       attributes[:phar_format] = "zip+gz" unless attributes[:phar_format_given?]
 
       # becomes local -t phar
-      if attributes[:output_type] == "phar"
+      if !attributes[:composer_phar_given?]
         FileUtils.mv(::Dir.glob("#{build_deep}/*"), staging_path)
 
       # matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
@@ -121,46 +128,10 @@ class FPM::Package::Composer < FPM::Package
       end
     end
     cleanup_build
-
-    #
-    #if as_phar
-    #  attributes[:prefix] = "/usr/share/php/vendor/#{in_bundle}"
-    #else
-    #  name = "php-composer-" + in_bundle.gsub(/\W+/, '-')
-    #end
-    # pre-package as local-phar - meant for .phar in deb/rpm system package - else just use a regular -t phar target
-    #if attributes[:composer_phar]
-    #  attributes[:phar_format] = "zip+gz"
-    #  phar = convert(FPM::Package::Phar)
-    #  fn = phar.build_path + "/#{@name}.phar"
-    #  phar.output(fn)
-    #  phar.cleanup_staging
-    #  FileUtils.rm_rf(staging_path + "/.")
-    #  FileUtils.mkdir_p(staging_path + "/usr/share/php/")
-    #  FileUtils.mv(fn, staging_path + "/usr/share/php/")
-    #else
-      # register /usr/share/php/composer.json update script here
-      # (composer can't rescan on its own.)
-      #attributes[:after_install] = ...
-    #end
     rescue StandardError => e
       p e
   end # def output
 
-  
-  # transpose package string magic values, or bundles/forks into system package names
-  def require_convert(k, v)
-    if ["php", "php-32bit", "php-64bit", "hhvm", "quercus"].include?(k)
-      k = "php5"
-    elsif k =~ /^ext-(\w+)$/
-      k = @as_phar ? "php:$1" : "php5-$1"
-    elsif k =~ /^lib-(\w+)$/
-      k = @as_phar ? "sys:lib$1" : "lib$1"
-    else
-      k =(@as_phar ? "" : "php-composer-") + k.gsub(/\W+/, '-')
-    end
-    return "#{k} (#{v})"
-  end
 
   # collect per-package composer.json infos
   def composer_json_import(json)
@@ -187,6 +158,58 @@ class FPM::Package::Composer < FPM::Package
     end
   end
 
+  # translate package names and versions
+  def require_convert(k, v)
+
+    # package names, magic values, add php-composer- qualifier
+    k = k.strip.gsub(/\W+/, "-")
+    if as_phar
+      if k =~ /^php|^hhvm|^quercus/
+        k = "php"
+      elsif k =~ /^ext-(\w+)$/
+        k = "php:#{$1}"
+      elsif k =~ /^lib-(\w+)$/
+        k = "sys:lib#{$1}"
+      elsif k =~ /^bin-(\w+)$/
+        k = "bin:#{$1}"
+      else
+        k
+      end
+    else
+      if k =~ /^php|^hhvm|^quercus/
+        k = "php5 | php5-common"
+      elsif k =~ /^ext-(\w+)$/
+        k = "php5-#{$1}"
+      elsif k =~ /^lib-(\w+)$/
+        k = "lib#{$1}"
+      else
+        k = "php-composer-#{k}"
+      end
+    end
+
+    # expand version specifiers (this is intentionally incomplete)
+    if attribute[:no_depends_given?]
+      v = ""
+    else
+      v = v.gsub(/\s+|^v/)
+      if v == "*"  # any
+        v = ""
+      elseif v =~ /^(.*)\.\*$/  # 1.0.*
+        v = " (>=#{$1})"
+      elseif v =~ /^[\d.-]+$/  # 1.0.1
+        v = " (= #{v})"
+      elseif v =~ /^([><]*)=([\d.-]+)$/  # >= 2.0
+        v = " (#{$1}= #{$2})"
+      elseif v =~ /^~\s*([\d.-]+)$/  # ~2.0
+        v = " (>= #{$1})"  # would actually require a range pkg(>=1),pkg(<<2)
+      else
+        v = ""
+      end
+    end
+    return k ? k + v : nil
+  end
+
+
   # Extract package sections from composer.lock file, turn into pkgname→hash
   def parse_lock(fn)
     json = JSON.parse(File.read(fn))
@@ -194,6 +217,7 @@ class FPM::Package::Composer < FPM::Package
     Hash[  json["packages"].map{ |entry| [entry["name"], entry] }  ]
   end
   
+  # Add composer.lock package date into per-package composer.json→extra→lock
   def inject_lock(fn, extra)
     json = JSON.parse(File.read(fn))
     json["extra"] ||= {}
@@ -201,7 +225,7 @@ class FPM::Package::Composer < FPM::Package
     File.write(fn, JSON.pretty_generate(json))
   end
 
-  # find composer binary
+  # Locate composer binary
   def composer
     (`which composer` or `which composer.phar` or ("php "+`locate composer.phar`)).split("\n").first
   end
