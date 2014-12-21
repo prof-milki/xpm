@@ -153,7 +153,7 @@ class FPM::Package::Phar < FPM::Package
           $p->compress(#{o_hullgz});
        }
     PHP
-    safesystem("php", "-dphar.readonly=0", "-r", code, JSON.generate(meta))
+    safesystem("php", "-dphar.readonly=0", "-derror_reporing=~0", "-ddisplay_errors=1", "-r", code, JSON.generate(meta))
 
     #-- but might end up with suffix, for whole-archive ->compress()ion
     FileUtils.mv(tmp_phar + o_extout, output_path)
