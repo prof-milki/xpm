@@ -63,7 +63,7 @@ class FPM::Package::Composer < FPM::Package
   def input(in_bundle)
 
     # general params
-    as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
+    @as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
     in_bundle = in_bundle.gsub(/^(.\/)*vendor\/+|\/(?=\/)|\/+$/, "")
     @name = in_bundle.gsub(/[\W]+/, "-")
     lock = {}
@@ -83,7 +83,10 @@ class FPM::Package::Composer < FPM::Package
       # download one package (and dependencies, which are thrown away afterwards)
       ::Dir.chdir(build_path) do
         ver = attributes[:composer_ver]
-        safesystem(composer, "require", "--ignore-platform-reqs", in_bundle, *(ver ? [ver] : []))
+        safesystem(
+          composer, "require", "--prefer-dist", "--update-no-dev", "--ignore-platform-reqs",
+          "--no-ansi", "--no-interaction", in_bundle, *(ver ? [ver] : [])
+        )
         FileUtils.rm_r(["vendor/composer", "vendor/autoload.php"])
       end
     end
@@ -100,7 +103,7 @@ class FPM::Package::Composer < FPM::Package
     # eventually move this to convert() or converted_from()..
     
     # system package (deb/rpm) with raw files under /usr/share/php/vendor/
-    if !as_phar
+    if !@as_phar
       @name = "php-composer-#{name}"
       attributes[:prefix] ||= "/usr/share/php/vendor/#{in_bundle}"
       FileUtils.mkdir_p("#{staging_path}/usr/share/php")
@@ -154,16 +157,16 @@ class FPM::Package::Composer < FPM::Package
       @maintainer = json["authors"].map{ |v| v.values.join(", ") }.first or nil
     end
     if json.key? "require" and dependencies.empty?
-      @dependencies = json["require"].collect { |k,v| require_convert(k,v) }
+      @dependencies = json["require"].collect { |k,v| require_convert(k,v) }.flatten
     end
   end
 
   # translate package names and versions
   def require_convert(k, v)
 
-    # package names, magic values, add php-composer- qualifier
+    # package names, magic values
     k = k.strip.gsub(/\W+/, "-")
-    if as_phar
+    if @as_phar
       if k =~ /^php|^hhvm|^quercus/
         k = "php"
       elsif k =~ /^ext-(\w+)$/
@@ -188,7 +191,7 @@ class FPM::Package::Composer < FPM::Package
     end
 
     # expand version specifiers (this is intentionally incomplete)
-    if attribute[:no_depends_given?]
+    if attributes[:no_depends_given?]
       v = ""
     else
       v = v.gsub(/\s+|^v/)
@@ -198,10 +201,12 @@ class FPM::Package::Composer < FPM::Package
         v = " (>=#{$1})"
       elseif v =~ /^[\d.-]+$/  # 1.0.1
         v = " (= #{v})"
-      elseif v =~ /^([><]*)=([\d.-]+)$/  # >= 2.0
+      elseif v =~ /^([><=]*)([\d.-]+)$/  # >= 2.0
         v = " (#{$1}= #{$2})"
+        # fpm normalizes >, <, =
       elseif v =~ /^~\s*([\d.-]+)$/  # ~2.0
-        v = " (>= #{$1})"  # would actually require a range pkg(>=1),pkg(<<2)
+        v = " (>= #{$1})"
+        # would better translate into a range ["pkg(>=1)", "pkg(<<2)"]
       else
         v = ""
       end
