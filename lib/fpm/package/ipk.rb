@@ -67,7 +67,7 @@ class FPM::Package::IPK < FPM::Package
     ::Dir.chdir(staging_path) do
       safesystem("lipkgen", *opts);
     end
-    FileUtils.rm_rf(ipk) unless debug?
+    FileUtils.rm_rf(ipk) unless attributes[:debug?]
     
     # move file
     File.rename(::Dir["#{build_path}/*.ipk"].first, output_path)
