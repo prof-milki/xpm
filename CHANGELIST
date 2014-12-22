@@ -1,3 +1,17 @@
+1.3.3.3 (December 22, 2014)
+  - Added IPK / Listaller packaging target plugin.
+  - Added Windows (EXE) installer generation.
+  - Added PHP composer as source plugin.
+  - Added source-based file packaging support (-t src plugin).
+  - Added PHP phar archive generation plugin.
+  - Introduction of multi-target building with -t rpm,deb,ipk.
+  - Added -u update filters for simple packaging tasks (existing plugins: man,
+    desktop, appdata, fixperms, strip, composer, deps).
+  - Added --deb-sign option.
+  - Changed zip plugin to omit /tmp/package* path.
+  - Now supports .pax and .cpio through the tar plugin.
+  - First release of the `xpm` branch. Gemspec adapted.
+
 1.3.3 (December 11, 2014)
   - The fpm project now uses Contributor Covenant. You can read more about this on
     the website: http://contributor-covenant.org/

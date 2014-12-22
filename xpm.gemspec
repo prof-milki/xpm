@@ -1,16 +1,13 @@
 require File.join(File.dirname(__FILE__), "lib/fpm/version")
 Gem::Specification.new do |spec|
   files = []
-  dirs = %w{lib bin templates}
-  dirs.each do |dir|
-    files += Dir["#{dir}/**/*"]
-  end
+  files += Dir["{bin,lib,templates}/**/*"]
 
   files << "LICENSE"
   files << "CONTRIBUTORS"
   files << "CHANGELIST"
 
-  spec.name = "fpm"
+  spec.name = "xpm"
   spec.version = FPM::VERSION
   spec.summary = "fpm - package building and mangling"
   spec.description = "Convert directories, rpms, python eggs, rubygems, and " \
@@ -51,10 +48,10 @@ Gem::Specification.new do |spec|
   spec.files = files
   spec.require_paths << "lib"
   spec.bindir = "bin"
-  spec.executables << "fpm"
+  spec.executables << "xpm"
 
-  spec.author = "Jordan Sissel"
-  spec.email = "jls@semicomplete.com"
-  spec.homepage = "https://github.com/jordansissel/fpm"
+  spec.author = "Mario Salzer"
+  spec.email = "mario#include-once:org"
+  spec.homepage = "http://fossil.include-once.org/xpm/"
 end
 
