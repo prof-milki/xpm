@@ -42,6 +42,7 @@
 
 require "fpm/package"
 require "fpm/util"
+require "fpm/errors"
 require "fpm/package/zip"
 require "fileutils"
 require "json"
@@ -57,6 +58,7 @@ class FPM::Package::Composer < FPM::Package
     super
     @architecture = "all"
     @as_phar = false
+    @tainted = false
   end
 
   # fetch and expand composer download
@@ -64,10 +66,15 @@ class FPM::Package::Composer < FPM::Package
 
     # general params
     @as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
-    in_bundle = in_bundle.gsub(/^(.\/)*vendor\/+|\/(?=\/)|\/+$/, "")
+    in_bundle = in_bundle.gsub(/^(.+\/+)*vendor\/+|\/(?=\/)|\/+$/, "")
     @name = in_bundle.gsub(/[\W]+/, "-")
     lock = {}
     target_dir = ""
+    if @tainted
+      raise FPM::InvalidPackageConfiguration, "You can't input multiple bundle names. "\
+          "Only one package can be built at a time currently. Use a shell loop please."
+    end
+    @tainted = true
     if in_bundle =~ /^composer\/\w+\.\w+/
       logger.warn("composer/*.* files specified as input")
       return
@@ -120,6 +127,7 @@ class FPM::Package::Composer < FPM::Package
 
       # matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
       else
+        #(should warn about combination with -t phar)
         FileUtils.mkdir_p(staging_dest = "#{staging_path}/usr/share/php")
         ::Dir.chdir("#{build_deep}") do
           phar = convert(FPM::Package::Phar)
@@ -131,8 +139,6 @@ class FPM::Package::Composer < FPM::Package
       end
     end
     cleanup_build
-    rescue StandardError => e
-      p e
   end # def output
 
 
@@ -202,11 +208,11 @@ class FPM::Package::Composer < FPM::Package
       elseif v =~ /^[\d.-]+$/  # 1.0.1
         v = " (= #{v})"
       elseif v =~ /^([><=]*)([\d.-]+)$/  # >= 2.0
-        v = " (#{$1}= #{$2})"
-        # fpm normalizes >, <, =
+        v = " (#{$1} #{$2})"
+        # debianize_op() normalizes >, <, = anyway
       elseif v =~ /^~\s*([\d.-]+)$/  # ~2.0
-        v = " (>= #{$1})"
-        # would better translate into a range ["pkg(>=1)", "pkg(<<2)"]
+        v = " (~> #{$1})"
+        # deb.fix_dependency translates that into a range ["pkg(>=1)", "pkg(<<2)"]
       else
         v = ""
       end
