@@ -254,7 +254,6 @@ class FPM::Command < Clamp::Command
 
   # Execute this command. See Clamp::Command#execute and Clamp's documentation
   def execute
-
     # Short-circuit if someone simply runs `fpm --version`
     if ARGV == [ "--version" ]
       puts FPM::VERSION
@@ -342,7 +341,7 @@ class FPM::Command < Clamp::Command
     if !inputs.nil?
       if !File.exists?(inputs)
         logger.fatal("File given for --inputs does not exist (#{inputs})")
-        return 1
+        return 66 #EX_NOINPUT
       end
 
       # Read each line as a path
@@ -437,7 +436,6 @@ class FPM::Command < Clamp::Command
         opts = []
         if filter_type =~ /(\w+)[=:]+(.+)/
           filter_type, opts = [$1, $2.split(/\W+/)]
-          p opts
         end
         if not FPM::Package.types.include?("filter_#{filter_type}")
           logger.warn("Unknown -u update filter '#{filter_type}'")
@@ -449,9 +447,8 @@ class FPM::Command < Clamp::Command
     end
 
     # Traverse output types (-t deb,rpm,pkg,exe).
-    # Scope retval and output here, so they're available for ensure block.
+    # Scope output here, so it's available for ensure block.
     output = nil 
-    retval = 0
     output_type.split(/[\s,;+]+/).uniq.each do |output_type|
       
       # Convert to the output type
@@ -480,23 +477,26 @@ class FPM::Command < Clamp::Command
         output.output(package_file)
       rescue FPM::Package::FileAlreadyExists => e
         logger.fatal(e.message)
-        return 1
+        return 77 #EX_PERM
       rescue FPM::Package::ParentDirectoryMissing => e
         logger.fatal(e.message)
-        return 1
+        return 73 #EX_CANTCREAT
       end
 
       logger.log("Created package", :path => package_file)
     end # each output_type
   rescue FPM::Util::ExecutableNotFound => e
     logger.error("Need executable '#{e}' to convert #{input_type} to #{output_type}")
-    return 1
+    return 69 #EX_UNAVAILABLE
   rescue FPM::InvalidPackageConfiguration => e
     logger.error("Invalid package configuration: #{e}")
-    return 1
+    return 78 #EX_CONFIG
   rescue FPM::Util::ProcessFailed => e
     logger.error("Process failed: #{e}")
-    return 1
+    return 74 #EX_IOERR
+  rescue => e
+    logger.fatal("Error: #{e}")
+    return 70 #EX_SOFTWARE
   ensure
     if debug_workspace?
       # only emit them if they have files
@@ -512,7 +512,7 @@ class FPM::Command < Clamp::Command
       input.cleanup unless input.nil?
       output.cleanup unless output.nil?
     end
-    return retval
+    return 0 #EX_OK
   end # def execute
 
   def run(*args)
