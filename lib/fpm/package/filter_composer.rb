@@ -22,7 +22,7 @@ require "time"
 
 # composer.json
 class FPM::Package::Filter_Composer < FPM::Package
-  def update
+  def update(opts=nil)
     # read existing data
     dest = "#{staging_path}/#{@prefix}/composer.json"
     if File.exist?(dest)
