@@ -70,7 +70,7 @@ class FPM::Package::IPK < FPM::Package
     FileUtils.rm_rf(ipk) unless attributes[:debug?]
     
     # move file
-    File.rename(::Dir["#{build_path}/*.ipk"].first, output_path)
+    FileUtils.mv(::Dir["#{build_path}/*.ipk"].first, output_path)
   end # output
 
 end
