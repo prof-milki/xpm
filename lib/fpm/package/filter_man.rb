@@ -16,7 +16,7 @@ require "fpm/util"
 
 # find manpages, compress them
 class FPM::Package::Filter_man < FPM::Package
-  def update
+  def update(opts=nil)
     ::Dir[staging_path + "/**/man/**/*.[12345678]"].each do |file|
        safesystem("gzip", "-9", file)
     end

@@ -37,7 +37,7 @@ class FPM::Package::Filter_appdata < FPM::Package
 
   include ERB::Util
 
-  def update
+  def update(opts=nil)
     dest = "#{staging_path}/usr/share/appdata/#{name}.appdata.xml"
     FileUtils.mkdir_p(File.dirname(dest))
     File.open(dest, "w") do |xml|

@@ -20,7 +20,7 @@ class FPM::Package::Filter_desktop < FPM::Package
 
   include ERB::Util
 
-  def update
+  def update(opts=nil)
     dest = "#{staging_path}/usr/share/applications/fpm:#{name}.desktop"
     FileUtils.mkdir_p(File.dirname(dest))
     File.open(dest, "w") do |ini|

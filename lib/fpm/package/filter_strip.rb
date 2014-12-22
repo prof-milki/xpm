@@ -6,7 +6,7 @@ require "fpm/util"
 require "fileutils"
 
 class FPM::Package::Filter_strip < FPM::Package
-  def update
+  def update(opts=nil)
     ::Dir["#{staging_path}/**/*"].each do |fn|
       unless File.directory?(fn)
         # only work on ELF files

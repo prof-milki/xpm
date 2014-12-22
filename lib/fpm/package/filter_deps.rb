@@ -49,7 +49,7 @@ class FPM::Package::Filter_Deps < FPM::Package
   end
   
   # traverse lists
-  def update(opts)
+  def update(opts=nil)
     
     # check for `-u deps=target` or `deps=source..target` options (option tokens are preseparated in command.rb)
     if opts.count >= 2
