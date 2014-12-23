@@ -38,6 +38,12 @@
 # → System packagess require a manual composer.json assembly/update,
 #   as composer can't reconstruct them or its .lock from dirs.
 # ø Unclear: require/use `-u composer` for reading meta?
+# * Bring in line with Debian packaging scheme, dh_phpcomposer/pkg-php
+#   drop -composer- in package names, get rid of /vendor/deep/dirs/
+#   and adopt complete version/dependency translation after all?
+# ø Dependencies are not in line with RPM recommendations,
+#   http://fedoraproject.org/wiki/Packaging:PHP
+#   https://twiki.cern.ch/twiki/bin/view/Main/RPMAndDebVersioning
 #
 
 require "fpm/package"
@@ -101,7 +107,11 @@ class FPM::Package::Composer < FPM::Package
     # extract composer lock{} list, update fpm meta fields, and merge into pkgs` composer.json
     ::Dir.chdir(build_path) do
       lock = parse_lock("composer.lock")
-      target_dir = lock[in_bundle]["target-dir"]
+      if lock.key? in_bundle
+        target_dir = lock[in_bundle]["target-dir"]
+      else
+        raise FPM::InvalidPackageConfiguration, "Package name #{in_bundle} absent in composer.lock"
+      end
       inject_lock("vendor/#{in_bundle}/#{target_dir}/composer.json", lock[in_bundle])
       composer_json_import(lock[in_bundle])
     end
@@ -163,7 +173,7 @@ class FPM::Package::Composer < FPM::Package
       @maintainer = json["authors"].map{ |v| v.values.join(", ") }.first or nil
     end
     if json.key? "require" and dependencies.empty?
-      @dependencies = json["require"].collect { |k,v| require_convert(k,v) }.flatten
+      @dependencies += json["require"].collect { |k,v| require_convert(k,v) }.flatten
     end
   end
 
@@ -186,7 +196,7 @@ class FPM::Package::Composer < FPM::Package
       end
     else
       if k =~ /^php|^hhvm|^quercus/
-        k = "php5 | php5-common"
+        k = "php5-common"
       elsif k =~ /^ext-(\w+)$/
         k = "php5-#{$1}"
       elsif k =~ /^lib-(\w+)$/
@@ -200,24 +210,26 @@ class FPM::Package::Composer < FPM::Package
     if attributes[:no_depends_given?]
       v = ""
     else
-      v = v.gsub(/\s+|^v/)
-      if v == "*"  # any
-        v = ""
-      elseif v =~ /^(.*)\.\*$/  # 1.0.*
-        v = " (>=#{$1})"
-      elseif v =~ /^[\d.-]+$/  # 1.0.1
-        v = " (= #{v})"
-      elseif v =~ /^([><=]*)([\d.-]+)$/  # >= 2.0
-        v = " (#{$1} #{$2})"
-        # debianize_op() normalizes >, <, = anyway
-      elseif v =~ /^~\s*([\d.-]+)$/  # ~2.0
-        v = " (~> #{$1})"
-        # deb.fix_dependency translates that into a range ["pkg(>=1)", "pkg(<<2)"]
-      else
-        v = ""
-      end
+      v = v.split(",").map { |v|
+        v = v.gsub(/\s+|^v/, "")
+        case v.to_s
+          when "*"
+            v = ""
+          when /^(.+)\.\*/  # 1.0.*
+            v = " >= #{$1}.0"
+          when /^[\d.-]+$/  # 1.0.1
+            v = " = #{v}"
+          when /^([><=]*)([\d.-]+)$/  # >= 2.0   # debianize_op() normalizes >, <, = anyway
+            v = " #{$1} #{$2}"
+          when /^~\s*([\d.-]+)$/  # ~2.0   # deb.fix_dependency translates that into a range ["pkg(>=1)", "pkg(<<2)"]
+            v = " ~> #{$1}"
+          else
+            v = ""
+        end
+      }
     end
-    return k ? k + v : nil
+    p v
+    return k ? v.map { |v| k + v } : nil
   end
 
 
@@ -225,6 +237,12 @@ class FPM::Package::Composer < FPM::Package
   def parse_lock(fn)
     json = JSON.parse(File.read(fn))
     FileUtils.rm(fn)  # not needed afterwards (this is run within the build_path)
+    if !json.key? "packages"
+      json["packages"] = []
+    end
+    if json.key? "packages-dev"
+      json["packages"] += json["packages-dev"]
+    end
     Hash[  json["packages"].map{ |entry| [entry["name"], entry] }  ]
   end
   
