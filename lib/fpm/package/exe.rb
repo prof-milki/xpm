@@ -144,6 +144,8 @@ class FPM::Package::Exe < FPM::Package
       attributes[:exe_autoextract] = meta["autoextract"]
       attributes[:exe_delete]      = meta["delete"]
       attributes[:exe_shortcut]    = meta["shortcut0"]
+      # keep other attributes?
+      #@attrs.merge!(meta)
     end
     # extract via Zip
     zip = convert(FPM::Package::Zip)

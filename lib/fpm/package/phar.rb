@@ -69,8 +69,8 @@ class FPM::Package::Phar < FPM::Package
     o_stub = attributes[:phar_stub] || ""
     o_sign = attributes[:phar_sign] || ""
     
-    # Retain package meta information, either from fpm attributes, or collected :meta hash (src module)
-    meta = attributes[:meta] || {
+    # Retain package meta information, either from fpm attributes, or collected :attr hash (src module, formerly :meta)
+    meta = attrs.merge({
       "id" => @name,
       "version" => @version.to_s,
       "epoch" => @epoch.to_s,
@@ -80,8 +80,7 @@ class FPM::Package::Phar < FPM::Package
       "author" => @maintainer,
       "url" => @url,
       "license" => @license,
-    }
-    meta = meta.delete_if{ |k,v| v.nil? || v==""}
+    }).delete_if{ |k,v| v.nil? || v==""}
     
     # Match format specifier/extension onto type/settings
     fmt = (attributes[:phar_format] + output_path).downcase

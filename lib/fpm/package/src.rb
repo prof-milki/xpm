@@ -85,8 +85,8 @@ class FPM::Package::Src < FPM::Package  # inheriting from ::Dir doesn't work
       @license = m["license"] if not attributes[:license_given?]
       @vendor = m["author"] if not attributes[:maintainer_given?]
       @maintainer = m["author"] if not attributes[:maintainer_given?]
-      # pass all available attributes on in a hash
-      @attributes[:meta] = m
+      # retain all available attributes (formerly :meta, now in shared :attrs)
+      @attrs.merge!(m)
           #@todo preparse and collect config: structures
     end
 

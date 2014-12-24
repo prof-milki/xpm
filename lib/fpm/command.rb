@@ -385,14 +385,14 @@ class FPM::Command < Clamp::Command
     input.config_files += config_files
     input.directories += directories
 
-    h = {}
-    attrs.each do | e |
-
-      s = e.split(':', 2)
-      h[s.last] = s.first
-    end
-
-    input.attrs = h
+#-- not sure what this was meant for, attrs was a hash already
+    #h = {}
+    #attrs.each do | e |
+    #
+    #  s = e.split(':', 2)
+    #  h[s.last] = s.first
+    #end
+    #input.attrs = h
 
     
     script_errors = []
