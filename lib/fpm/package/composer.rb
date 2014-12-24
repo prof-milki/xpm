@@ -2,18 +2,19 @@
 # encoding: utf-8
 # api: fpm
 # title: Composer source
-# description: Downloads composer bundles into system or phar packages
+# description: Converts composer bundles into system or/and phar packages
 # type: package
 # depends: bin:composer
 # category: source
-# version: 0.2
+# version: 0.3
 # state: beta
 # license: MITL
 # author: mario#include-once:org
 # 
 # Creates system packages for composer/packagist bundles.
 #
-#  → Either works on individual vendor/*/*/ paths as input.
+#  → Either works on individual vendor/*/*/ paths as input
+#    (the vendor/ prefix can be omitted).
 #
 #  → Or downloads a single vnd/pkgname bundle.
 #
@@ -59,34 +60,40 @@ class FPM::Package::Composer < FPM::Package
 
   option "--ver", "1.0\@dev", "Which version to checkout", :default=>nil
   option "--phar", :flag, "Convert bundle into .phar plugin package", :default=>false
+  
+  attr_accessor :as_phar      # detect -t phar and --composer-phar flags
+  attr_accessor :once         # prevent double .input() invocation
+  attr_accessor :name_prefix  # hold "php-composer" or "php-phar" prefix
 
-  def initialize
-    super
+  def initialize(*args)
+    super(*args)
     @architecture = "all"
+    @name_prefix = "php-composer"
     @as_phar = false
-    @tainted = false
+    @once = false
+    @attrs[:composer] = {}
   end
 
-  # fetch and expand composer download
+  # download composer bundle, or compact from existing vendor/ checkout
   def input(in_bundle)
 
     # general params
-    @as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
+    as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
     in_bundle = in_bundle.gsub(/^(.+\/+)*vendor\/+|\/(?=\/)|\/+$/, "")
     @name = in_bundle.gsub(/[\W]+/, "-")
     lock = {}
     target_dir = ""
-    if @tainted
+    if once
+      once = true
       raise FPM::InvalidPackageConfiguration, "You can't input multiple bundle names. "\
           "Only one package can be built at a time currently. Use a shell loop please."
     end
-    @tainted = true
     if in_bundle =~ /^composer\/\w+\.\w+/
       logger.warn("composer/*.* files specified as input")
       return
     end
 
-    # operation mode
+    # copying or download mode
     if File.exist?("vendor/" + in_bundle)
       # prepare a single vendor/*/* input directory
       FileUtils.cp("composer.lock", build_path)
@@ -120,8 +127,8 @@ class FPM::Package::Composer < FPM::Package
     # eventually move this to convert() or converted_from()..
     
     # system package (deb/rpm) with raw files under /usr/share/php/vendor/
-    if !@as_phar
-      @name = "php-composer-#{name}"
+    if !as_phar
+      name = "php-composer-#{name}"
       attributes[:prefix] ||= "/usr/share/php/vendor/#{in_bundle}"
       FileUtils.mkdir_p("#{staging_path}/usr/share/php")
       FileUtils.mv("#{build_path}/vendor", "#{staging_path}/usr/share/php")
@@ -175,6 +182,8 @@ class FPM::Package::Composer < FPM::Package
     if json.key? "require" and dependencies.empty?
       @dependencies += json["require"].collect { |k,v| require_convert(k,v) }.flatten
     end
+    # stash away complete composer struct for possible phar building
+    @attrs[:composer] = json
   end
 
   # translate package names and versions
@@ -210,25 +219,24 @@ class FPM::Package::Composer < FPM::Package
     if attributes[:no_depends_given?]
       v = ""
     else
-      v = v.split(",").map { |v|
-        v = v.gsub(/\s+|^v/, "")
-        case v.to_s
+      v = v.split(",").map {
+        |v|
+        case v.gsub(/\s+|^v/, "").to_s
           when "*"
-            v = ""
+            ""
           when /^(.+)\.\*/  # 1.0.*
-            v = " >= #{$1}.0"
+            " >= #{$1}.0"
           when /^[\d.-]+$/  # 1.0.1
-            v = " = #{v}"
+            " = #{v}"
           when /^([><=]*)([\d.-]+)$/  # >= 2.0   # debianize_op() normalizes >, <, = anyway
-            v = " #{$1} #{$2}"
+            " #{$1} #{$2}"
           when /^~\s*([\d.-]+)$/  # ~2.0   # deb.fix_dependency translates that into a range ["pkg(>=1)", "pkg(<<2)"]
-            v = " ~> #{$1}"
+            " ~> #{$1}"
           else
-            v = ""
+            ""
         end
       }
     end
-    p v
     return k ? v.map { |v| k + v } : nil
   end
 
