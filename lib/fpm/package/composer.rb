@@ -20,11 +20,9 @@
 #
 # Also supports different target variations:
 #
-#  → Syspackages (deb/rpm) end up in /usr/share/php/vendor/vnd/pkg/.
-#    The composer.json is augmented with lock[] data to permit
-#    rebuilding composer.lock and file-autoloading.
+#  → Syspackages (deb/rpm) end up in /usr/share/php/Vnd/Pkg.
 #
-#  → Whereas --composer-phar creates Phars matroskaed into system
+#  → Whereas --composer-phar creates Phars embedded into system
 #    packages, with target names of /usr/share/php/vnd-pkg.phar.
 #
 #  → With a standard `-t phar` target it'll just compact individual
@@ -32,19 +30,21 @@
 #
 # NOTES
 #
-# → The vendor/ prefix is retained and enforced to prevent clashes
-#   with PEAR and system packages.
-# → Invokes `composer require`, merges composer.lock information into
-#   per-bundle vnd/name/composer.json→extra→lock.
-# → System packagess require a manual composer.json assembly/update,
-#   as composer can't reconstruct them or its .lock from dirs.
-# ø Unclear: require/use `-u composer` for reading meta?
+# → Currently rewritten to conform to Debian pkg-php-tools and Fedora
+#   schemes.
+# → The vendor/ prefix isn't retained any longer. Composer wasn't meant
+#   to manage globally installed libraries.
+# → System packages thus need a global autoloader (shared.phar / phpab)
+#   or manual includes.
+# → The build process utilizes `composer require` to fetch new packages,
+#   if xpm -s composer isn't run from within a composer managed project.
 # * Bring in line with Debian packaging scheme, dh_phpcomposer/pkg-php
 #   drop -composer- in package names, get rid of /vendor/deep/dirs/
 #   and adopt complete version/dependency translation after all?
 # ø Dependencies are not in line with RPM recommendations,
 #   http://fedoraproject.org/wiki/Packaging:PHP
 #   https://twiki.cern.ch/twiki/bin/view/Main/RPMAndDebVersioning
+# ø Unclear: require/use `-u composer` for reading meta?
 #
 
 require "fpm/package"
@@ -61,30 +61,30 @@ class FPM::Package::Composer < FPM::Package
   option "--ver", "1.0\@dev", "Which version to checkout", :default=>nil
   option "--phar", :flag, "Convert bundle into .phar plugin package", :default=>false
   
-  attr_accessor :as_phar      # detect -t phar and --composer-phar flags
-  attr_accessor :once         # prevent double .input() invocation
-  attr_accessor :name_prefix  # hold "php-composer" or "php-phar" prefix
+  public
+  attr_accessor :in_bundle
 
   def initialize(*args)
     super(*args)
     @architecture = "all"
-    @name_prefix = "php-composer"
-    @as_phar = false
-    @once = false
+    @name_prefix = ""      # hold "php-" or "phar-" syspackage name prefix
+    @target_dir = nil      # two-level base directory under /usr/share/php
+    @in_bundle = "n/a"     # packagist bundle name
+    @as_phar = false       # detect -t phar and --composer-phar flags
+    @once = false          # prevent double .input() invocation
     @attrs[:composer] = {}
   end
 
   # download composer bundle, or compact from existing vendor/ checkout
-  def input(in_bundle)
+  def input(vnd_pkg_path)
 
     # general params
-    as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
-    in_bundle = in_bundle.gsub(/^(.+\/+)*vendor\/+|\/(?=\/)|\/+$/, "")
+    @as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
+    in_bundle = vnd_pkg_path.gsub(/^(.+\/+)*vendor\/+|\/(?=\/)|\/+$/, "")
     @name = in_bundle.gsub(/[\W]+/, "-")
     lock = {}
-    target_dir = ""
-    if once
-      once = true
+    if @once
+      @once = true
       raise FPM::InvalidPackageConfiguration, "You can't input multiple bundle names. "\
           "Only one package can be built at a time currently. Use a shell loop please."
     end
@@ -93,69 +93,63 @@ class FPM::Package::Composer < FPM::Package
       return
     end
 
-    # copying or download mode
+    # copying mode
     if File.exist?("vendor/" + in_bundle)
-      # prepare a single vendor/*/* input directory
-      FileUtils.cp("composer.lock", build_path)
-      FileUtils.mkdir_p(dest = "#{build_path}/vendor/#{in_bundle}")
-      FileUtils.cp_r(::Dir.glob("./vendor/#{in_bundle}/*"), dest)
+      # localize contents below vendor/*/*/ input directory
+      ::Dir.chdir("./vendor/#{in_bundle}/") do
+        FileUtils.cp_r(glob("./*"), build_path)
+      end
+      lock = parse_lock("composer.lock", in_bundle)
     else
       # download one package (and dependencies, which are thrown away afterwards)
-      ::Dir.chdir(build_path) do
+      ::Dir.chdir(staging_path) do
         ver = attributes[:composer_ver]
         safesystem(
           composer, "require", "--prefer-dist", "--update-no-dev", "--ignore-platform-reqs",
           "--no-ansi", "--no-interaction", in_bundle, *(ver ? [ver] : [])
         )
-        FileUtils.rm_r(["vendor/composer", "vendor/autoload.php"])
+        # localize Vnd/Pkg folder
+        lock = parse_lock("composer.lock", in_bundle)
+        FileUtils.mv(glob("./vendor/#{in_bundle}/#{lock[in_bundle]['target-dir']}/*"), build_path)
+        FileUtils.rm_r(glob("#{staging_dir}/*"))
       end
     end
+    
+    # prepare assembly
+    composer_json_import(lock[in_bundle])
+    target_dir = lock["target-dir"] or in_bundle
+    attributes[:phar_format] = "zip+gz" unless attributes[:phar_format_given?]
 
-    # extract composer lock{} list, update fpm meta fields, and merge into pkgs` composer.json
-    ::Dir.chdir(build_path) do
-      lock = parse_lock("composer.lock")
-      if lock.key? in_bundle
-        target_dir = lock[in_bundle]["target-dir"]
-      else
-        raise FPM::InvalidPackageConfiguration, "Package name #{in_bundle} absent in composer.lock"
-      end
-      inject_lock("vendor/#{in_bundle}/#{target_dir}/composer.json", lock[in_bundle])
-      composer_json_import(lock[in_bundle])
-    end
 
     #-- staging
     # eventually move this to convert() or converted_from()..
     
-    # system package (deb/rpm) with raw files under /usr/share/php/vendor/
-    if !as_phar
-      name = "php-composer-#{name}"
-      attributes[:prefix] ||= "/usr/share/php/vendor/#{in_bundle}"
-      FileUtils.mkdir_p("#{staging_path}/usr/share/php")
-      FileUtils.mv("#{build_path}/vendor", "#{staging_path}/usr/share/php")
+    # system package (deb/rpm) with raw files under /usr/share/php/Vnd/Pkg
+    if !@as_phar
+      @name_prefix = "php-"
+      attributes[:prefix] ||= "/usr/share/php/#{target_dir}"
+      FileUtils.mkdir_p(dest = "#{staging_path}/#{@attributes[:prefix]}")
+      FileUtils.mv(glob("#{build_path}/*"), dest)
 
-    # phar packages, lose deep nesting
-    else
-      build_deep = "#{build_path}/vendor/#{in_bundle}/#{target_dir}"
-      attributes[:phar_format] = "zip+gz" unless attributes[:phar_format_given?]
-
-      # becomes local -t phar
-      if !attributes[:composer_phar_given?]
-        FileUtils.mv(::Dir.glob("#{build_deep}/*"), staging_path)
-
-      # matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
-      else
-        #(should warn about combination with -t phar)
-        FileUtils.mkdir_p(staging_dest = "#{staging_path}/usr/share/php")
-        ::Dir.chdir("#{build_deep}") do
-          phar = convert(FPM::Package::Phar)
-          phar.instance_variable_set(:@staging_path, ".")
-          phar.output("#{staging_dest}/#{name}.phar");
-          phar.cleanup_build
-        end
-        @name = "php-phar-#{name}"
+    # matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
+    elsif attributes[:composer_phar_given?]
+      @name_prefix = "phar-"
+      FileUtils.mkdir_p(staging_dest = "#{staging_path}/usr/share/php")
+      ::Dir.chdir("#{build_path}") do
+        phar = convert(FPM::Package::Phar)
+        phar.instance_variable_set(:@staging_path, ".")
+        phar.output("#{staging_dest}/#{@name}.phar");
+        phar.cleanup_build
       end
+
+    # becomes local -t phar
+    else
+      cleanup_staging
+      @staging_path = build_path
     end
+
     cleanup_build
+    @name = "#{@name_prefix}#{@name}"
   end # def output
 
 
@@ -242,16 +236,19 @@ class FPM::Package::Composer < FPM::Package
 
 
   # Extract package sections from composer.lock file, turn into pkgname→hash
-  def parse_lock(fn)
+  def parse_lock(fn, in_bundle)
     json = JSON.parse(File.read(fn))
-    FileUtils.rm(fn)  # not needed afterwards (this is run within the build_path)
     if !json.key? "packages"
       json["packages"] = []
     end
     if json.key? "packages-dev"
       json["packages"] += json["packages-dev"]
     end
-    Hash[  json["packages"].map{ |entry| [entry["name"], entry] }  ]
+    lock = Hash[  json["packages"].map{ |entry| [entry["name"], entry] }  ]
+    unless lock.key? in_bundle
+      raise FPM::InvalidPackageConfiguration, "Package name #{in_bundle} absent in composer.lock"
+    end
+    return lock
   end
   
   # Add composer.lock package date into per-package composer.json→extra→lock
@@ -265,6 +262,10 @@ class FPM::Package::Composer < FPM::Package
   # Locate composer binary
   def composer
     (`which composer` or `which composer.phar` or ("php "+`locate composer.phar`)).split("\n").first
+  end
+
+  def glob(path)
+    ::Dir.glob(path)
   end
 
 end # class ::Composer
