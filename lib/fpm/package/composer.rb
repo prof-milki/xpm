@@ -70,16 +70,13 @@ class FPM::Package::Composer < FPM::Package
     @name_prefix = ""      # hold "php-" or "phar-" syspackage name prefix
     @target_dir = nil      # two-level base directory under /usr/share/php
     @in_bundle = "n/a"     # packagist bundle name
-    @as_phar = false       # detect -t phar and --composer-phar flags
     @once = false          # prevent double .input() invocation
-    @attrs[:composer] = {}
   end
 
   # download composer bundle, or compact from existing vendor/ checkout
   def input(vnd_pkg_path)
 
     # general params
-    @as_phar = attributes[:composer_phar_given?] || attributes[:output_type].match(/phar/)
     in_bundle = vnd_pkg_path.gsub(/^(.+\/+)*vendor\/+|\/(?=\/)|\/+$/, "")
     @name = in_bundle.gsub(/[\W]+/, "-")
     lock = {}
@@ -114,43 +111,112 @@ class FPM::Package::Composer < FPM::Package
         FileUtils.rm_r(glob("#{staging_dir}/*"))
       end
     end
-    
-    # prepare assembly
-    composer_json_import(lock[in_bundle])
-    target_dir = lock["target-dir"] or in_bundle
-    attributes[:phar_format] = "zip+gz" unless attributes[:phar_format_given?]
-
 
     #-- staging
-    # eventually move this to convert() or converted_from()..
-    
-    # system package (deb/rpm) with raw files under /usr/share/php/Vnd/Pkg
-    if !@as_phar
-      @name_prefix = "php-"
-      attributes[:prefix] ||= "/usr/share/php/#{target_dir}"
-      FileUtils.mkdir_p(dest = "#{staging_path}/#{@attributes[:prefix]}")
-      FileUtils.mv(glob("#{build_path}/*"), dest)
+    # At this point the build_path contains just the actual class files, etc.
+    # Conversion to sys/phar/sysphar is handled in convert() along with the
+    # dependency translation.
+    composer_json_import(lock[in_bundle])
+    @target_dir = lock["target-dir"] or in_bundle
+    attributes[:phar_format] = "zip+gz" unless attributes[:phar_format_given?]
+  end # def output
 
-    # matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
-    elsif attributes[:composer_phar_given?]
-      @name_prefix = "phar-"
-      FileUtils.mkdir_p(staging_dest = "#{staging_path}/usr/share/php")
-      ::Dir.chdir("#{build_path}") do
-        phar = convert(FPM::Package::Phar)
-        phar.instance_variable_set(:@staging_path, ".")
-        phar.output("#{staging_dest}/#{@name}.phar");
-        phar.cleanup_build
-      end
+  
+  def convert(klass)
+    pkg = super(klass)
 
     # becomes local -t phar
+    if klass == FPM::Package::Phar
+      pkg.instance_variable_set(:@staging_path, build_path)
+
+    # prepare matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
+    elsif attributes[:composer_phar_given?]
+      FileUtils.mkdir_p(staging_dest = "#{staging_path}/usr/share/php")
+      ::Dir.chdir("#{build_path}") do
+        phar = convert(FPM::Package::Phar) # will loop internally
+        phar.output("#{staging_dest}/#{@name}.phar");
+      end
+      @name_prefix = "phar-"
+
+    # system package (deb/rpm) with plain files under /usr/share/php/Vnd/Pkg
     else
-      cleanup_staging
-      @staging_path = build_path
+      dest = "/usr/share/php/#{@target_dir}"
+      FileUtils.mkdir_p(dest = "#{pkg.staging_path}/#{dest}")
+      FileUtils.cp_r(glob("#{build_path}/*"), dest)
+      @name_prefix = "php-"
     end
 
-    cleanup_build
-    @name = "#{@name_prefix}#{@name}"
-  end # def output
+    # add dependencies
+    pkg.name = "#{@name_prefix}#{@name}"
+    pkg.dependencies += @cdeps.collect { |k,v| require_convert(k, v, @name_prefix, klass) }.flatten.compact
+    
+    return pkg
+  end # def convert
+
+
+  # translate package names and versions
+  def require_convert(k, v, prefix, klass)
+
+    # package type/name maps
+    map = { FPM::Package::RPM => :rpm, FPM::Package::Deb => :deb, FPM::Package::Phar => :phar }
+    typ = map.include?(klass) ? map[klass] : :deb
+    pn = {
+      :php => { :phar => "php",     :deb => "php5-common", :rpm => "php(language)" },
+      :ext => { :phar => "ext:",    :deb => "php5-",       :rpm => "php-" },
+      :lib => { :phar => "sys:lib", :deb => "lib",         :rpm => "lib" },
+      :bin => { :phar => "bin:",    :deb => "",            :rpm => "/usr/bin/" }
+    }
+
+    # package names, magic values
+    case k = k.strip.gsub(/\W+/, "-")
+      when /^php(-32bit|-64bit)?|^hhvm|^quercus/
+        k = pn[:php][typ]
+        @architecture = ($1 == "-32bit") ? "x86" : "amd64" if $1
+      when /^(ext|lib|bin)-(\w+)$/
+        k = pn[$1.to_sym][typ] + $2
+      else
+        k = prefix + k
+    end
+
+    # expand version specifiers (this is intentionally incomplete)
+    if attributes[:no_depends_given?]
+      v = ""
+    else
+      v = v.split(",").map {
+        |v|
+        case v = ver(v, typ)
+          when "*"
+            ""
+          when /^[\d.-]+~*$/  # 1.0.1
+            " = #{v}"
+          when /^((\d+\.)*(\d+))\.\*/  # 1.0.*
+            [" >= #{$1}.0", " <= #{$1}.999"]
+          when /^([!><=]*)([\d.-]+~*)$/  # >= 2.0   # debianize_op() normalizes >, <, = anyway
+            " #{$1} #{$2}"
+          when /^~\s*([\d.-]+~*)$/  # ~2.0   # deb.fix_dependency translates that into a range ["pkg(>=1)", "pkg(<<2)"]
+            " ~> #{$1}"
+          else
+            ""
+        end
+      }
+    end
+    return k ? v.flatten.map { |v| k + v } : nil
+  end
+  
+  # normalize version strings to packaging system
+  def ver(v, typ)
+    v.gsub!(/ (?:^.+ \sAS\s (.+$))? | \s+() | ^v() /nix, "\\1")
+    case typ
+      when :deb
+        v.gsub!(/[-@](dev|patch).*$/, "~~")
+        v.gsub!(/[-@](alpha|beta|RC|stable).*$/, "~")
+      when :rpm
+        v.gsub!(/[-@](dev|patch|alpha|beta|RC|stable).*$/, "")
+      else
+        v.gsub!(/@/, "-")
+    end
+    return v
+  end
 
 
   # collect per-package composer.json infos
@@ -174,64 +240,10 @@ class FPM::Package::Composer < FPM::Package
       @maintainer = json["authors"].map{ |v| v.values.join(", ") }.first or nil
     end
     if json.key? "require" and dependencies.empty?
-      @dependencies += json["require"].collect { |k,v| require_convert(k,v) }.flatten
+      @cdeps = json["require"]
     end
     # stash away complete composer struct for possible phar building
     @attrs[:composer] = json
-  end
-
-  # translate package names and versions
-  def require_convert(k, v)
-
-    # package names, magic values
-    k = k.strip.gsub(/\W+/, "-")
-    if @as_phar
-      if k =~ /^php|^hhvm|^quercus/
-        k = "php"
-      elsif k =~ /^ext-(\w+)$/
-        k = "php:#{$1}"
-      elsif k =~ /^lib-(\w+)$/
-        k = "sys:lib#{$1}"
-      elsif k =~ /^bin-(\w+)$/
-        k = "bin:#{$1}"
-      else
-        k
-      end
-    else
-      if k =~ /^php|^hhvm|^quercus/
-        k = "php5-common"
-      elsif k =~ /^ext-(\w+)$/
-        k = "php5-#{$1}"
-      elsif k =~ /^lib-(\w+)$/
-        k = "lib#{$1}"
-      else
-        k = "php-composer-#{k}"
-      end
-    end
-
-    # expand version specifiers (this is intentionally incomplete)
-    if attributes[:no_depends_given?]
-      v = ""
-    else
-      v = v.split(",").map {
-        |v|
-        case v.gsub(/\s+|^v/, "").to_s
-          when "*"
-            ""
-          when /^(.+)\.\*/  # 1.0.*
-            " >= #{$1}.0"
-          when /^[\d.-]+$/  # 1.0.1
-            " = #{v}"
-          when /^([><=]*)([\d.-]+)$/  # >= 2.0   # debianize_op() normalizes >, <, = anyway
-            " #{$1} #{$2}"
-          when /^~\s*([\d.-]+)$/  # ~2.0   # deb.fix_dependency translates that into a range ["pkg(>=1)", "pkg(<<2)"]
-            " ~> #{$1}"
-          else
-            ""
-        end
-      }
-    end
-    return k ? v.map { |v| k + v } : nil
   end
 
 
