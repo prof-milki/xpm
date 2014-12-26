@@ -495,7 +495,7 @@ class FPM::Command < Clamp::Command
     logger.error("Process failed: #{e}")
     return 74 #EX_IOERR
   rescue => e
-    logger.fatal("Error: #{e}")
+    logger.fatal("Error: #{e}\n#{e.backtrace}")
     return 70 #EX_SOFTWARE
   ensure
     if debug_workspace?
