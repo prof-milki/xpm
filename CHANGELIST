@@ -1,3 +1,13 @@
+1.3.3.4 (December 26, 2014)
+  - Restructured staging/conversion step to separate flags and dependency
+    resolution for multi-target building.
+  - Composer module changed to match Debian/Fedora packaging guidelines.
+    Prefixed vendor/ path is omitted, composer managebility averted.
+    Dependency transformation still is somewhat rough.
+  - Phar, Src, Exe, Composer module now use :attrs instead of [:meta].
+  - Added backtrace output for generic error message.
+  - Simple update filter added to "unprefix" input system packages.
+
 1.3.3.3 (December 22, 2014)
   - Added IPK / Listaller packaging target plugin.
   - Added Windows (EXE) installer generation.
