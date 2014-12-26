@@ -80,7 +80,7 @@ class FPM::Package::Composer < FPM::Package
     # general params
     in_bundle = vnd_pkg_path.gsub(/^(.+\/+)*vendor\/+|\/(?=\/)|\/+$/, "")
     @name = in_bundle.gsub(/[\W]+/, "-")
-    lock = {}
+    json = {}
     if @once
       @once = true
       raise FPM::InvalidPackageConfiguration, "You can't input multiple bundle names. Only one package can be built at a time currently. Use a shell loop please."
@@ -90,11 +90,11 @@ class FPM::Package::Composer < FPM::Package
 
     # copying mode
     if File.exist?("vendor/" + in_bundle)
+      json = parse_lock("composer.lock", in_bundle)[in_bundle]
       # localize contents below vendor/*/*/ input directory
-      ::Dir.chdir("./vendor/#{in_bundle}/") do
+      ::Dir.chdir("./vendor/#{in_bundle}/#{json['target-dir']}/") do
         FileUtils.cp_r(glob("./*"), build_path)
       end
-      lock = parse_lock("composer.lock", in_bundle)
     else
       # download one package (and dependencies, which are thrown away afterwards)
       ::Dir.chdir(staging_path) do
@@ -104,9 +104,9 @@ class FPM::Package::Composer < FPM::Package
           "--no-ansi", "--no-interaction", in_bundle, *(ver ? [ver] : [])
         )
         # localize Vnd/Pkg folder
-        lock = parse_lock("composer.lock", in_bundle)
-        FileUtils.mv(glob("./vendor/#{in_bundle}/#{lock[in_bundle]['target-dir']}/*"), build_path)
-        FileUtils.rm_r(glob("#{staging_dir}/*"))
+        json = parse_lock("composer.lock", in_bundle)[in_bundle]
+        FileUtils.mv(glob("./vendor/#{in_bundle}/#{json['target-dir']}/*"), build_path)
+        FileUtils.rm_r(glob("#{staging_path}/*"))
       end
     end
 
@@ -114,8 +114,8 @@ class FPM::Package::Composer < FPM::Package
     # At this point the build_path contains just the actual class files, etc.
     # Conversion to sys/phar/sysphar is handled in convert() along with the
     # dependency translation.
-    composer_json_import(lock[in_bundle])
-    @target_dir = lock["target-dir"] or in_bundle
+    composer_json_import(json)
+    @target_dir = json.include?("target-dir") ? json["target-dir"] : in_bundle
     attributes[:phar_format] = "zip+gz" unless attributes[:phar_format_given?]
   end # def output
 
