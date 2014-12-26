@@ -6,7 +6,7 @@
 # type: package
 # depends: bin:composer
 # category: source
-# version: 0.3
+# version: 0.5
 # state: beta
 # license: MITL
 # author: mario#include-once:org
@@ -25,26 +25,27 @@
 #  → Whereas --composer-phar creates Phars embedded into system
 #    packages, with target names of /usr/share/php/vnd-pkg.phar.
 #
-#  → With a standard `-t phar` target it'll just compact individual
+#  → While a standard `-t phar` target will just compact individual
 #    components into localized phars.
 #
 # NOTES
 #
 # → Currently rewritten to conform to Debian pkg-php-tools and Fedora
 #   schemes.
-# → The vendor/ prefix isn't retained any longer. Composer wasn't meant
-#   to manage globally installed libraries.
+# → The vendor/ extraction prefix isn't retained any longer. Composer wasn't
+#   meant to manage system-globally installed libraries.
 # → System packages thus need a global autoloader (shared.phar / phpab)
 #   or manual includes.
 # → The build process utilizes `composer require` to fetch new packages,
 #   if xpm -s composer isn't run from within a composer managed project.
-# * Bring in line with Debian packaging scheme, dh_phpcomposer/pkg-php
-#   drop -composer- in package names, get rid of /vendor/deep/dirs/
-#   and adopt complete version/dependency translation after all?
-# ø Dependencies are not in line with RPM recommendations,
+# → Bring in line with Debian packaging scheme, dh_phpcomposer/pkg-php
+#   dropped -composer- in package names, got rid of nested /vendor/deep/dirs/
+#   yet to adopt complete version/dependency translation after all?
+# ø Dependencies are neither in line with Fedora/RPM version expressions,
 #   http://fedoraproject.org/wiki/Packaging:PHP
 #   https://twiki.cern.ch/twiki/bin/view/Main/RPMAndDebVersioning
-# ø Unclear: require/use `-u composer` for reading meta?
+# ø Unclear: require/use `-u composer` for reading meta? Currently just
+#   composer.lock is scanned for input.
 #
 
 require "fpm/package"
@@ -82,12 +83,9 @@ class FPM::Package::Composer < FPM::Package
     lock = {}
     if @once
       @once = true
-      raise FPM::InvalidPackageConfiguration, "You can't input multiple bundle names. "\
-          "Only one package can be built at a time currently. Use a shell loop please."
-    end
-    if in_bundle =~ /^composer\/\w+\.\w+/
-      logger.warn("composer/*.* files specified as input")
-      return
+      raise FPM::InvalidPackageConfiguration, "You can't input multiple bundle names. Only one package can be built at a time currently. Use a shell loop please."
+    elsif in_bundle =~ /^composer\/\w+\.\w+/
+      raise FPM::InvalidPackageConfiguration, "composer/*.* files specified as input. Supply only one bundle id."
     end
 
     # copying mode
@@ -128,6 +126,7 @@ class FPM::Package::Composer < FPM::Package
     # becomes local -t phar
     if klass == FPM::Package::Phar
       pkg.instance_variable_set(:@staging_path, build_path)
+      @name_prefix = ""  # needs to be reset in case of multi-target building
 
     # prepare matroska phar-in-deb/rpm, ends up in /usr/share/php/*.phar
     elsif attributes[:composer_phar_given?]
@@ -149,7 +148,6 @@ class FPM::Package::Composer < FPM::Package
     # add dependencies
     pkg.name = "#{@name_prefix}#{@name}"
     pkg.dependencies += @cdeps.collect { |k,v| require_convert(k, v, @name_prefix, klass) }.flatten.compact
-    
     return pkg
   end # def convert
 
@@ -258,7 +256,7 @@ class FPM::Package::Composer < FPM::Package
     end
     lock = Hash[  json["packages"].map{ |entry| [entry["name"], entry] }  ]
     unless lock.key? in_bundle
-      raise FPM::InvalidPackageConfiguration, "Package name #{in_bundle} absent in composer.lock"
+      raise FPM::InvalidPackageConfiguration, "Package name '#{in_bundle}' absent in composer.lock"
     end
     return lock
   end
